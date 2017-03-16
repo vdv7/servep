@@ -1,0 +1,30 @@
+{
+  "name": "servep",
+  "version": "1.0.0",
+  "description": "serve command-line processes as stateful http, jsonp, ws, and tcp",
+  "keywords": [
+    "server",
+    "stdio",
+    "stateful",
+    "http",
+    "websocket",
+    "tcp",
+    "netcat",
+    "websocketd",
+    "cgi"
+  ],
+  "license": "MIT",
+  "author": "vdv7",
+  "main": "servep.js",
+  "scripts": {
+    "test": "./servep.js ./samples/ -p 8000"
+  },
+  "bin": {
+    "servep": "./servep.js"
+  },
+  "dependencies": {
+    "minimist": "^1.2.0",
+    "moment": "^2.17.1",
+    "ws": "^2.2.0"
+  }
+}
