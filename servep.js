@@ -9,11 +9,12 @@
 //
 //
 // TODO:
+//	be more consistent calling things process vs task vs taskprocess (i.e. change all task that refers to taskprocess accordingly)
+//	if p.sessionID is not going to match http sessionID, rename one
 //	maybe change ws routing, as such:
 		// var server = new ws.Server();
 		// server.on(‘connection/foobar’, handler1);
 		// server.on(‘connection/bazqux’, handler2);
-//	fix logging path, add logging to http handler, test loggin on all
 //	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, etc) 
 //	auto-tcp port, allow changes in HTTP_CONNECTION_TIMEOUT and timeout for res.end via cli
 //	adapt to each process so as to get rid of http res.end timeout if that timeout isn't needed
@@ -119,6 +120,9 @@ Log formatting adheres to the Extended Log File Format (ELF), version 1.1.
     c-date, c-time,         local date/time on client
     s-port,                 server port
     protocol                connection protocol (e.g. http, https, ws)
+    cs-raw, sc-raw,         all data coming over the wire, including headers
+    cs-head, sc-head,       entire string of headers
+    cs-body, sc-body,       data coming over the wire, minus the headers
   In addition to ELF 1.0 time definition, 1.1 allows time-zone offset:
     <time>=2<digit>":"2<digit>[":"2<digit>["."*<digit>]]["+"|"-"2<digit>[":"2<digit>]]');
   
@@ -159,35 +163,36 @@ function mkdir(pathname) {
 	try {fs.mkdirSync(pathname);}
 	catch(e){if(e.code!='EEXIST')throw e;}
 }
-function newFilePath(folder,extension){
-	//TODO: make sure filepath doesnt exist
-	return path.join(folder,(new Date()).toJSON().replaceAll(':','-')+'.'+extension);
-}
 
 ////////////////////////////////////////
 // logging
 function print(s){console.log(s);}
-//TODO: status should only accept task obj and status/comment
-// function status(protocol,port,uri,ip,status,comment,sessionID){
 function status(taskinfo,status,comment,now){
-	print(`${(now||moment()).format('YYYY-MM-DD HH:mm:ss')} ${taskinfo} ${status||'-'} ${comment||'-'}`);
+	print(`${(now||moment()).format('YYYY-MM-DD HH:mm:ss')}\t${taskinfo}\t${status||'-'}\t${comment||'-'}`);
 }
-function openLog(taskname){
-	//TODO: incorrect path
-	if(clArgs.log)return fs.createWriteStream(newFilePath(path.join(clArgs.log,taskname),'txt'));
+function makeLogFolder(task){
+	mkdir(clArgs.log);
+	mkdir(path.join(clArgs.log,task.protocol));
+	mkdir(path.join(clArgs.log,task.protocol,task.route));
 }
-function record2log(logfile,data,originIsClient){
-	if(logfile)logfile.write((new Date()).getTime()+'\t'+originIsClient+'\t'+data+'\r\n');
+function openLog(taskprocess){
+	if(clArgs.log){
+		console.log(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.sessionID+'.txt');
+		taskprocess.log=fs.createWriteStream(path.join(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.sessionID+'.txt'));
+		taskprocess.log.write('#Version: 1.1\n');
+		taskprocess.log.write(`#Start-Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}\n`);
+		taskprocess.log.write('#Fields: epochms\tcs-body\tsc-body\n');
+	}
+}
+function record2log(logfile,csdata,scdata){
+	if(logfile)logfile.write((new Date()).getTime()+'\t'+csdata+'\t'+scdata+'\n');
 }
 
 ////////////////////////////////////////
 // local process setup/teardown
 function run(cmd){
-	var p;
-	if(WIN)p=childProcess.spawn(process.env.comspec,['/c'].concat(cmd));
-	else p=childProcess.spawn(cmd[0],cmd.slice(1));
-	p.cmd=cmd;
-	return p;
+	if(WIN)return childProcess.spawn(process.env.comspec,['/c'].concat(cmd));
+	return childProcess.spawn(cmd[0],cmd.slice(1));
 }
 function setupProcess(task,ip){
 	//TODO: tie sessionID with logfile name
@@ -195,12 +200,13 @@ function setupProcess(task,ip){
 	spawnedProcesses.push(p);
 	p.protocol=task.protocol;
 	p.port=task.port||clArgs.port;
+	p.route=task.route;
 	p.uri=task.cmd.length?`"${task.cmd.join(' ')}"`:task.cmd[0];
 	p.ip=ip;
 	p.startTime=moment();
 	p.sessionID=p.startTime.format('YYYYMMDDTHHmmss-')+p.pid;
-	p.log=openLog(task.route);
 	p.info=`${p.protocol} ${p.port} ${p.uri} ${p.ip} ${p.sessionID}`;
+	openLog(p);
 	status(p.info,201,'spawning',p.startTime);
 	return p;
 }
@@ -209,7 +215,10 @@ function cleanup(p){
 		p.cleaned=true;
 		status(p.info,204,'closing');
 		spawnedProcesses.splice(spawnedProcesses.indexOf(p), 1);
-		if(p.log)p.log.end();
+		if(p.log){
+			p.log.write(`#End-Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}\n`);
+			p.log.end();
+		}
 	}
 }
 function killSpawnedProcess(p){
@@ -227,9 +236,9 @@ function onTask2ClientMsg(data,socket,task){
 			try{
 				if(socket.write)socket.write(arrayOfLines[i]+'\r\n');
 				else socket.send(arrayOfLines[i]+'\r\n');
-				record2log(task.log,arrayOfLines[i],0);
+				record2log(task.log,'-',arrayOfLines[i]);
 			}catch(e){
-				status(task.info,500,JSON.stringify(`"!Failed to write to socket:\n > ${arrayOfLines[i]}\n${e}\nClosing connection..."`));
+				status(task.info,500,JSON.stringify(`!Failed to write to socket:\n > ${arrayOfLines[i]}\n${e}\nClosing connection...`));
 				if(socket.end)socket.end();else socket.close();
 			}
 		}
@@ -240,7 +249,7 @@ function onClient2TaskMsg(data,taskprocess){
 		data=data.toString().trim();
 		if(data.length){
 			taskprocess.stdin.write(data+'\r\n');
-			record2log(taskprocess.log,data,1);
+			record2log(taskprocess.log,data,'-');
 		}
 	}catch(e){
 		status(taskprocess.info,500,JSON.stringify(e));
@@ -385,8 +394,9 @@ function httpHandler(req,res){
 						for(var i=0;i<arrayOfLines.length;i++){
 							if(taskprocess.callback)taskprocess.res.write(jsonp(taskprocess.callback,arrayOfLines[i]));
 							else taskprocess.res.write(arrayOfLines[i]+'\n');
+							record2log(taskprocess.log,'-',arrayOfLines[i]);
 						}
-						taskprocess.ending=setTimeout(()=>{taskprocess.res.end()},20);
+						taskprocess.ending=setTimeout(()=>{taskprocess.res.end();if(taskprocess.closeWhenDone)taskprocess.close()},20);
 					}
 				});
 			}
@@ -394,10 +404,11 @@ function httpHandler(req,res){
 			taskprocess.callback=callback;
 			taskprocess.res=res;
 			taskprocess.stdin.write(data+'\r\n');			//client -> task
+			record2log(taskprocess.log,data,'-');
 			//connection timeout to kill process (or end right now if "end" or "e" is one of the uri params)
 			clearTimeout(taskprocess.exitTimeout);
 			if('e' in params || 'end' in params){
-				taskprocess.close();
+				taskprocess.closeWhenDone=true;
 				if(taskprocess.ending)clearTimeout(taskprocess.ending);
 				taskprocess.ending=setTimeout(()=>{taskprocess.res.end()},20);
 			}else{
@@ -447,6 +458,7 @@ function getTask(def,protocol){
 	if(!exeExists(task.cmd[0]))
 		usageAndExit(`ERROR: ${task.cmd[0]} is not a recognized command.`);
 	task.protocol=protocol;
+	if(clArgs.log)makeLogFolder(task);
 	return task;
 }
 function expandFolders(taskLst){
