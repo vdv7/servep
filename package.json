@@ -13,9 +13,14 @@
     "websocketd",
     "cgi"
   ],
+  "bugs":{"url":"https://github.com/vdv7/servep/issues"},
   "license": "MIT",
   "author": "vdv7",
   "main": "servep.js",
+  "repository" : {
+    "type" : "git",
+    "url" : "https://github.com/vdv7/servep.git"
+  },
   "scripts": {
     "test": "./servep.js ./samples/ -p 8000"
   },

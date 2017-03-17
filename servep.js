@@ -9,13 +9,14 @@
 //
 //
 // TODO:
+//	cs-body and sc-body currently aren't in quotes, and contain whiteSpace and quotes
 //	be more consistent calling things process vs task vs taskprocess (i.e. change all task that refers to taskprocess accordingly)
 //	if p.sessionID is not going to match http sessionID, rename one
 //	maybe change ws routing, as such:
 		// var server = new ws.Server();
 		// server.on(‘connection/foobar’, handler1);
 		// server.on(‘connection/bazqux’, handler2);
-//	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, etc) 
+//	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per sessionID, etc) 
 //	auto-tcp port, allow changes in HTTP_CONNECTION_TIMEOUT and timeout for res.end via cli
 //	adapt to each process so as to get rid of http res.end timeout if that timeout isn't needed
 //	require that sessionID be supplied by servep, not just made up 
@@ -115,17 +116,28 @@ Example:
 Log formatting adheres to the Extended Log File Format (ELF), version 1.1.
   ELF version 1.0 is specified here: https://www.w3.org/TR/WD-logfile.html
   In addition to ELF 1.0 fields, 1.1 allows the following fields:
-    epochs, epochms,        seconds and milliseconds since epoch
-    s-date, s-time,         local date/time on server
-    c-date, c-time,         local date/time on client
-    s-port,                 server port
-    protocol                connection protocol (e.g. http, https, ws)
-    cs-raw, sc-raw,         all data coming over the wire, including headers
-    cs-head, sc-head,       entire string of headers
-    cs-body, sc-body,       data coming over the wire, minus the headers
+    Field names that require no prefix:
+      epochs, epochms,        seconds and milliseconds since epoch
+    Field names that require sc-, cs-, s-, or c- prefix:
+      port,                   server port
+      protocol                connection protocol (e.g. http, https, ws)
+      raw, raw,               all data coming over the wire, including headers
+      head, head,             entire string of headers
+      body, body,             data coming over the wire, minus the headers
+    Fields date and time did not used to allow prefix, but now allow s- or c-:
+      s-date, s-time,         local date/time on server
+      c-date, c-time,         local date/time on client
   In addition to ELF 1.0 time definition, 1.1 allows time-zone offset:
     <time>=2<digit>":"2<digit>[":"2<digit>["."*<digit>]]["+"|"-"2<digit>[":"2<digit>]]');
-  
+  In addition to ELF 1.0 value types, 1.1 allows *tight JSON strings.
+    *tight JSON: JSON without any optional whitespace
+  Example of ELF v1.1:
+    #Version: 1.1
+    #Date: 2017-03-17 13:20:58-04:00
+    #Fields: s-date s-time cs-protocol s-port uri sc-body
+    2017-03-17 13:21:05 http 80 / "<html><body>\nHello World!\n</body></html>"
+    2017-03-17 13:21:13 http 80 /somescript.py {"x":"Hello World!\nLook, double-quotes: \"","y":23,"z":true}
+    2017-03-17 13:21:15 http 80 /somescript.py {"x":"Goodbye World."}
 `;
 
 
@@ -163,29 +175,34 @@ function mkdir(pathname) {
 	try {fs.mkdirSync(pathname);}
 	catch(e){if(e.code!='EEXIST')throw e;}
 }
+function tightJSON(s){
+	try{  //if s is JSON, try tightening it
+		return JSON.stringify(JSON.parse(s));
+	}catch(e){ //if s is not JSON, put quotes around it, backslashes before special chars
+		return JSON.stringify(s);
+	}
+}
 
 ////////////////////////////////////////
 // logging
 function print(s){console.log(s);}
 function status(taskinfo,status,comment,now){
-	print(`${(now||moment()).format('YYYY-MM-DD HH:mm:ss')}\t${taskinfo}\t${status||'-'}\t${comment||'-'}`);
+	print(`${(now||moment()).format('YYYY-MM-DD HH:mm:ss')}\t${taskinfo}\t${status||'-'}\t${comment || '-'}`);
 }
 function makeLogFolder(task){
 	mkdir(clArgs.log);
 	mkdir(path.join(clArgs.log,task.protocol));
 	mkdir(path.join(clArgs.log,task.protocol,task.route));
 }
-function openLog(taskprocess){
+function openLog(taskprocess,startTime){
 	if(clArgs.log){
 		console.log(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.sessionID+'.txt');
 		taskprocess.log=fs.createWriteStream(path.join(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.sessionID+'.txt'));
-		taskprocess.log.write('#Version: 1.1\n');
-		taskprocess.log.write(`#Start-Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}\n`);
-		taskprocess.log.write('#Fields: epochms\tcs-body\tsc-body\n');
+		taskprocess.log.write(`epochms	cs-body	sc-body\n`);
 	}
 }
 function record2log(logfile,csdata,scdata){
-	if(logfile)logfile.write((new Date()).getTime()+'\t'+csdata+'\t'+scdata+'\n');
+	if(logfile)logfile.write(`${new Date().getTime()}	${csdata?tightJSON(csdata):'-'}	${scdata?tightJSON(scdata):'-'}\n`);
 }
 
 ////////////////////////////////////////
@@ -206,26 +223,28 @@ function setupProcess(task,ip){
 	p.startTime=moment();
 	p.sessionID=p.startTime.format('YYYYMMDDTHHmmss-')+p.pid;
 	p.info=`${p.protocol} ${p.port} ${p.uri} ${p.ip} ${p.sessionID}`;
-	openLog(p);
+	openLog(p,p.startTime);
 	status(p.info,201,'spawning',p.startTime);
 	return p;
 }
-function cleanup(p){
+function cleanup(p,err){
 	if(!p.cleaned){
 		p.cleaned=true;
-		status(p.info,204,'closing');
+		if(err)status(p.info,500,tightJSON('closing due to ERROR: '+err));
+		else status(p.info,204,'closing');
 		spawnedProcesses.splice(spawnedProcesses.indexOf(p), 1);
 		if(p.log){
-			p.log.write(`#End-Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}\n`);
+			// p.log.write(`#End-Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}\n`);
 			p.log.end();
 		}
 	}
 }
-function killSpawnedProcess(p){
-	cleanup(p);
+function killSpawnedProcess(p,err){
+	cleanup(p,err);
 	if(WIN)childProcess.spawn("taskkill", ["/pid", p.pid, '/f', '/t']);
 	else p.kill();
 }
+
 
 ////////////////////////////////////////
 // for ws and tcp
@@ -236,9 +255,9 @@ function onTask2ClientMsg(data,socket,task){
 			try{
 				if(socket.write)socket.write(arrayOfLines[i]+'\r\n');
 				else socket.send(arrayOfLines[i]+'\r\n');
-				record2log(task.log,'-',arrayOfLines[i]);
+				record2log(task.log,null,arrayOfLines[i]);
 			}catch(e){
-				status(task.info,500,JSON.stringify(`!Failed to write to socket:\n > ${arrayOfLines[i]}\n${e}\nClosing connection...`));
+				killSpawnedProcess(task,`!Failed to write to socket:\n > ${arrayOfLines[i]}\n${e}`);
 				if(socket.end)socket.end();else socket.close();
 			}
 		}
@@ -249,31 +268,29 @@ function onClient2TaskMsg(data,taskprocess){
 		data=data.toString().trim();
 		if(data.length){
 			taskprocess.stdin.write(data+'\r\n');
-			record2log(taskprocess.log,data,'-');
+			record2log(taskprocess.log,data);
 		}
 	}catch(e){
-		status(taskprocess.info,500,JSON.stringify(e));
+		killSpawnedProcess(taskprocess,e);
 	}
 }
 function onClientConnection(task,socket,rcvEvent,endEvent){
 	try{
 		var taskprocess=setupProcess(task,socket.remoteAddress || socket._socket.remoteAddress);
 		taskprocess.stdout.on("data", function(data){onTask2ClientMsg(data,socket,taskprocess);});	// task --> client
-		taskprocess.stderr.on("data", function(data){
-			status(taskprocess.info,500,JSON.stringify('Error: '+data+'\nClosing connection.'));
-			killSpawnedProcess(taskprocess);
+		taskprocess.stderr.on("data", function(e){
+			killSpawnedProcess(taskprocess,e);
 			socket[endEvent]();
 		});
-		socket.on('error', function(err){
-			status(taskprocess.info,500,JSON.stringify(err+'\nClosing connection.'));
+		socket.on('error', function(e){
 			socket[endEvent]();
-			killSpawnedProcess(taskprocess);
+			killSpawnedProcess(taskprocess,e);
 		});
 		socket.on(rcvEvent, function(data){onClient2TaskMsg(data,taskprocess);});					// client --> task
 		socket.on(endEvent, function(){killSpawnedProcess(taskprocess);});
 		taskprocess.on("close", function(){socket[endEvent]();cleanup(taskprocess);});
 	}catch(e){
-		status(taskprocess.info,500,JSON.stringify(e));
+		killSpawnedProcess(taskprocess,e);
 	}
 }
 function onWSConnection(socket){
@@ -285,8 +302,7 @@ function onWSConnection(socket){
 
 ////////////////////////////////////////
 // for http (including jsonp)
-function isjson(s){try{JSON.parse(s);return true;}catch(e){return false;}}
-function jsonp(callback,data){return `${callback}(${isjson(data)?data:JSON.stringify(data)})\n`;}
+function jsonp(callback,data){return `${callback}(${tightJSON(data)})\n`;}
 function staticHandler(req,res){
   // maps file extention to MIME typere
   const map = {
@@ -375,9 +391,9 @@ function httpHandler(req,res){
 					killSpawnedProcess(taskprocess);
 					delete httpServer.sessions[sessionID];
 				}
-				taskprocess.stderr.on("data",(data)=>{
-					console.error("------- Error in \""+task+"\"\n"+data.toString()+"\n=======");
-					killSpawnedProcess(taskprocess);
+				taskprocess.stderr.on("data",(e)=>{
+					taskprocess.ending=setTimeout(()=>{taskprocess.res.end();},20);
+					killSpawnedProcess(taskprocess,e);
 					delete httpServer.sessions[sessionID];
 				});
 				taskprocess.on("close",()=>{
@@ -394,7 +410,7 @@ function httpHandler(req,res){
 						for(var i=0;i<arrayOfLines.length;i++){
 							if(taskprocess.callback)taskprocess.res.write(jsonp(taskprocess.callback,arrayOfLines[i]));
 							else taskprocess.res.write(arrayOfLines[i]+'\n');
-							record2log(taskprocess.log,'-',arrayOfLines[i]);
+							record2log(taskprocess.log,null,arrayOfLines[i]);
 						}
 						taskprocess.ending=setTimeout(()=>{taskprocess.res.end();if(taskprocess.closeWhenDone)taskprocess.close()},20);
 					}
@@ -404,7 +420,7 @@ function httpHandler(req,res){
 			taskprocess.callback=callback;
 			taskprocess.res=res;
 			taskprocess.stdin.write(data+'\r\n');			//client -> task
-			record2log(taskprocess.log,data,'-');
+			record2log(taskprocess.log,data);
 			//connection timeout to kill process (or end right now if "end" or "e" is one of the uri params)
 			clearTimeout(taskprocess.exitTimeout);
 			if('e' in params || 'end' in params){
@@ -428,8 +444,8 @@ function killSpawnedProcesses(){
 }
 function exitHandler(options, err) {
 	killSpawnedProcesses();
-    if (err)status(err.stack);
-    if (options.exit) process.exit();
+    if(err)status(500,tightJSON(err.stack));
+    if(options.exit)process.exit();
 	else print('#End-Date: '+moment().format('YYYY-MM-DD HH:mm:ssZ'));
 }
 //starts handler on exit
