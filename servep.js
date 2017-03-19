@@ -9,56 +9,12 @@
 //
 //
 // TODO:
-//	cs-body and sc-body currently aren't in quotes, and contain whiteSpace and quotes
-//	be more consistent calling things process vs task vs taskprocess (i.e. change all task that refers to taskprocess accordingly)
-//	if p.sessionID is not going to match http sessionID, rename one
-//	maybe change ws routing, as such:
-		// var server = new ws.Server();
-		// server.on(‘connection/foobar’, handler1);
-		// server.on(‘connection/bazqux’, handler2);
-//	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per sessionID, etc) 
 //	auto-tcp port, allow changes in HTTP_CONNECTION_TIMEOUT and timeout for res.end via cli
+//	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc) 
+//	copy help documentation into readme
 //	adapt to each process so as to get rid of http res.end timeout if that timeout isn't needed
-//	require that sessionID be supplied by servep, not just made up 
-//	add security in http by recording/checking ip address (and maybe headers?) for each sessionID,
+//	add security in http by recording/checking ip address (and maybe headers?) for each processID,
 //	add https/wss
-//
-//	maybe use custom ELF?
-//		for status:
-//			#Version: 1.1 (diff w 1.0: Fields+={localdate,localtime,epochs,epochms,protocol,port}; <time>=<time>[+|-2<digit>[:2<digit>]])
-//			#Software: pserve <Folder> <Options>
-//			#Start-Date: <isodate>
-//			#Fields: localdate localtime protocol s-port uri c-ip s-status s-comment x-session-id
-//			#Remark: Starting services...
-//			2017-03-14 19:43:26 http 80 / - - ready - -
-//			2017-03-14 19:43:26 http 80 /helloworld.py - - ready - -
-//			2017-03-14 19:43:26 ws 80 /helloworld.py - - ready - -
-//			2017-03-14 19:43:26 tcp 8000 /helloworld.py - - ready - -
-//			#Remark:  Hit Ctrl+C to quit.
-//			2017-03-14 19:44:16 http 80 /stapp.html 127.0.0.1 200 - -
-//			2017-03-14 19:44:16 http 80 /helloworld.py 127.0.0.1 302 new-session xxxxx
-//			2017-03-14 19:44:16 http 80 /helloworld.py 127.0.0.1 201 spawning xxxxx
-//			2017-03-14 19:45:07 http 80 /helloworld.py 127.0.0.1 204 closing xxxxx
-//			2017-03-14 19:46:16 http 80 /helloworld.py 127.0.0.1 302 new-session yyyyy
-//			2017-03-14 19:46:16 http 80 /helloworld.py 127.0.0.1 201 spawning yyyyy
-//			2017-03-14 19:46:37 http 80 /helloworld.py 127.0.0.1 302 new-session zzzzz
-//			2017-03-14 19:46:37 http 80 /helloworld.py 127.0.0.1 201 spawning zzzzz
-//			2017-03-14 19:46:37 http 80 /helloworld.py 127.0.0.1 500 "...TypeError: ..." zzzzz
-//			2017-03-14 19:56:16 http 80 /helloworld.py 127.0.0.1 408 closing yyyyy
-//			2017-03-14 19:57:01 ws 80 /helloworld.py 127.0.0.1 201 spawning -
-//			2017-03-14 19:57:01 ws 80 /helloworld.py 127.0.0.1 204 closing -
-//			2017-03-14 20:01:42 tcp 8000 /helloworld.py 127.0.0.1 201 spawning -
-//			2017-03-14 20:01:42 tcp 8000 /helloworld.py 127.0.0.1 204 closing -
-//			2017-03-14 20:01:42 tcp 8000 /helloworld.py 127.0.0.1 500 "Error: could not close process..." -
-//			...
-//			#End-Date: <isodate>
-//		for log:
-//			#Version: 1.1
-//			#Software: pserve --protocol "task.cmd"
-//			#Start-Date: <isodate>
-//			#Fields: epochms cs x-msg
-//			...
-//			#End-Date: <isodate>
 
 
 const
@@ -196,8 +152,8 @@ function makeLogFolder(task){
 }
 function openLog(taskprocess,startTime){
 	if(clArgs.log){
-		console.log(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.sessionID+'.txt');
-		taskprocess.log=fs.createWriteStream(path.join(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.sessionID+'.txt'));
+		console.log(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.processID+'.txt');
+		taskprocess.log=fs.createWriteStream(path.join(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.processID+'.txt'));
 		taskprocess.log.write(`epochms	cs-body	sc-body\n`);
 	}
 }
@@ -212,17 +168,17 @@ function run(cmd){
 	return childProcess.spawn(cmd[0],cmd.slice(1));
 }
 function setupProcess(task,ip){
-	//TODO: tie sessionID with logfile name
-	var p=run(task.cmd);
+	//TODO: tie processID with logfile name
+	var p=run(task.args);
 	spawnedProcesses.push(p);
 	p.protocol=task.protocol;
 	p.port=task.port||clArgs.port;
 	p.route=task.route;
-	p.uri=task.cmd.length?`"${task.cmd.join(' ')}"`:task.cmd[0];
+	p.cmd=task.cmd;
 	p.ip=ip;
 	p.startTime=moment();
-	p.sessionID=p.startTime.format('YYYYMMDDTHHmmss-')+p.pid;
-	p.info=`${p.protocol} ${p.port} ${p.uri} ${p.ip} ${p.sessionID}`;
+	p.processID=p.startTime.format('YYYYMMDDTHHmmss-')+p.pid;
+	p.info=`${p.protocol}	${p.port}	/${p.route}	"${p.cmd}"	${p.ip}	${p.processID}`;
 	openLog(p,p.startTime);
 	status(p.info,201,'spawning',p.startTime);
 	return p;
@@ -248,16 +204,16 @@ function killSpawnedProcess(p,err){
 
 ////////////////////////////////////////
 // for ws and tcp
-function onTask2ClientMsg(data,socket,task){
+function onTask2ClientMsg(data,socket,taskprocess){
 	var arrayOfLines = data.toString().match(/[^\r\n]+/g);
 	if(arrayOfLines){
 		for(var i=0;i<arrayOfLines.length;i++){
 			try{
 				if(socket.write)socket.write(arrayOfLines[i]+'\r\n');
 				else socket.send(arrayOfLines[i]+'\r\n');
-				record2log(task.log,null,arrayOfLines[i]);
+				record2log(taskprocess.log,null,arrayOfLines[i]);
 			}catch(e){
-				killSpawnedProcess(task,`!Failed to write to socket:\n > ${arrayOfLines[i]}\n${e}`);
+				killSpawnedProcess(taskprocess,`!Failed to write to socket:\n > ${arrayOfLines[i]}\n${e}`);
 				if(socket.end)socket.end();else socket.close();
 			}
 		}
@@ -325,7 +281,7 @@ function staticHandler(req,res){
   // extract URL path
   let pathname = path.join(clArgs.root,parsedUrl.pathname);
   function statusline(){
-	status(`http ${clArgs.port} ${req.url} ${req.connection.remoteAddress} -`,res.statusCode);
+	status(`http	${clArgs.port}	${req.url}	-	${req.connection.remoteAddress}	-`,res.statusCode);
   }
   fs.exists(pathname, function (exist) {
 	if(!exist) {
@@ -381,7 +337,7 @@ function httpHandler(req,res){
 			}else{
 				res.end(`<meta http-equiv="refresh" content="0;URL='http://${req.headers.host}/${path}:${sessionID}${urlo.search}'" />`);
 			}
-			status(`http ${clArgs.port} ${req.url} ${req.connection.remoteAddress} -`,res.statusCode);
+			status(`http	${clArgs.port}	${req.url}	${req.connection.remoteAddress}	-`,res.statusCode);
 		}else{
 			var taskprocess;
 			if(httpServer.sessions[sessionID]===undefined){	//spawn, create new session
@@ -466,13 +422,14 @@ function getTask(def,protocol){
 	var task={},i=def.indexOf(':');
 	if(i>=0){
 		task.route=def.slice(0,i);
-		task.cmd=def.slice(i+1).split(' ');
+		task.cmd=def.slice(i+1);
 	}else{
 		task.route=path.basename(def);
-		task.cmd=def.split(' ');
+		task.cmd=def;
 	}
-	if(!exeExists(task.cmd[0]))
-		usageAndExit(`ERROR: ${task.cmd[0]} is not a recognized command.`);
+	task.args=task.cmd.split(' ');
+	if(!exeExists(task.args[0]))
+		usageAndExit(`ERROR: ${task.args[0]} is not a recognized command.`);
 	task.protocol=protocol;
 	if(clArgs.log)makeLogFolder(task);
 	return task;
@@ -514,7 +471,7 @@ function main(){
 	// print('#Remark: in addition to Extended Log File Format 1.0 fields, 1.1 allows the following fields: s-date,s-time,c-date,c-time,epochs,epochms,protocol,port');
 	// print('#Remark: in addition to Extended Log File Format 1.0 time definition, 1.1 allows time-zone offset specification: <time> = 2<digit> ":" 2<digit> [":" 2<digit> ["." *<digit>]] ["+"|"-" 2<digit> [":" 2<digit>]]');
 	print(`#Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}`);
-	print('#Fields: s-date s-time cs-protocol s-port uri c-ip x-sessionid s-status s-comment');
+	print('#Fields: s-date s-time cs-protocol s-port cs-uri x-command c-ip x-processid s-status s-comment');
 	print('#Remark: Starting services...');
 	if(clArgs.root){						//serve entire folder (everything not in WS_FOLDER or HTTP_FOLDER is served as static files)
 		if(!fs.existsSync(clArgs.root) || !fs.statSync(clArgs.root).isDirectory())
@@ -525,7 +482,7 @@ function main(){
 		subfolder=path.join(clArgs.root,HTTP_FOLDER);
 		if(fs.existsSync(subfolder) && fs.statSync(subfolder).isDirectory())
 			clArgs.http.push(subfolder);
-		status(`http ${clArgs.port} / - -`,0,'ready');
+		status(`http ${clArgs.port}	/	-	-	-`,0,'ready');
 	}
 	if(clArgs.root || clArgs.http.length){	//serve processes over http
 		httpServer=Http.createServer(httpHandler);
@@ -538,7 +495,7 @@ function main(){
 			let task=getTask(s,'http');
 			if(task.route in httpServer.routing)usageAndExit(`ERROR: Duplicate HTTP service name: ${task.route}`);
 			httpServer.routing[task.route]=task;
-			status(`http ${clArgs.port} ${task.cmd} - -`,0,'ready');
+			status(`http ${clArgs.port}	/${task.route}	"${task.cmd}"	-	-`,0,'ready');
 		});
 	}
 	if(clArgs.ws.length){					//serve processes over websockets
@@ -551,7 +508,7 @@ function main(){
 			let task=getTask(s,'ws');
 			if(task.route in wsServer.routing)usageAndExit(`ERROR: Duplicate WS service name: ${task.route}`);
 			wsServer.routing[task.route]=task;
-			status(`ws ${clArgs.port} ${task.cmd} - -`,0,'ready');
+			status(`ws	${clArgs.port}	/${task.route}	"${task.cmd}"	-	-`,0,'ready');
 		});
 	}
 	if(clArgs.tcp.length){				//serve processes over tcp
@@ -561,7 +518,7 @@ function main(){
 			task.port=task.route;
 			var tcpServer=CreateTcpServer((socket)=>{onClientConnection(task,socket,'data','end')}).listen(parseInt(task.route));
 			tcpServer.on('error',(e)=>{usageAndExit(`ERROR: Could not start service for ${task.cmd} started on TCP port ${task.route}.\n - maybe port ${task.route} is in use or disallowed?`)});
-			status(`tcp ${task.route} ${task.cmd} - -`,0,'ready');
+			status(`tcp	${task.route}	-	"${task.cmd}"	-	-`,0,'ready');
 		});
 	}
 	print(`#Remark:  All services running.  Hit Ctrl+C to quit.`)
