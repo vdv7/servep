@@ -1,6 +1,6 @@
 {
   "name": "servep",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "serve command-line processes as stateful http, jsonp, ws, and tcp",
   "keywords": [
     "server",
