@@ -14,7 +14,7 @@
           parameter *c* 
         all input to server-side process is passed as GET
           parameter *d*, GET parameter *data*, or in POST method body
-        adding GET parameter e or GET parameter end to an HTTP request
+        adding GET parameter *e* or GET parameter *end* to an HTTP request
 		  gracefully ends the current session
 
         example of simple echo process interaction:

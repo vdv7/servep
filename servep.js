@@ -9,7 +9,10 @@
 //
 //
 // TODO:
-//	auto-tcp port, allow changes in HTTP_CONNECTION_TIMEOUT and timeout for res.end via cli
+//	before next commit:
+//		add into help/readme that tcp port does not need to be specified, and that whole folders can be
+//	allow changes in HTTP_CONNECTION_TIMEOUT, auto-tcp port range, and timeout for res.end via cli
+//	add ability to assign a prefix to all scripts in a folder (e.g. python tasks/stdio)
 //	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc) 
 //	copy help documentation into readme
 //	adapt to each process so as to get rid of http res.end timeout if that timeout isn't needed
@@ -20,7 +23,8 @@
 const
 	WS_FOLDER = '_ws',
 	HTTP_FOLDER = '_http',
-	HTTP_CONNECTION_TIMEOUT = 600000 //10min
+	HTTP_CONNECTION_TIMEOUT = 600000, //10min
+	AUTO_TCP_PORT = 9000
 ;
 
 
@@ -39,47 +43,55 @@ const USAGE=`Usage: servep [ServeFolder] [Options]
     --help                  more detailed help text
     -p, --port PORT         serve http/ws processes and static files on PORT;
                             if this argument is not specified, default is 80
+    -t, --tcp ExeFolder     serve processes in ExeFolder over TCP
     -t, --tcp "Port:Exe"    serve Exe over TCP, on a specified Port
                             (this argument may be specified multiple times)
+    -w, --ws ExeFolder      serve processes in ExeFolder over websockets
     -w, --ws "Name:Exe"     serve Exe over websockets, route by specified Name
                             (this argument may be specified multiple times)
+    -h, --http ExeFolder    serve processes in ExeFolder over http
     -h, --http "Name:Exe"   serve Exe over http, route by specified Name
     -l, --log path          log all server-client interactions in separate
                               files in the specified path, under subfolder
                               PROTOCOL/ROUTE/, where PROTOCOL is http, ws, or
                               tcp, and ROUTE is the respective Port or Name
-  Exe                       path to executable process, and arguments
+  ExeFolder                 path to folder including executable processes
+  Exe                       path to executable process [and arguments], or
 `;
 const HELP=`
-Each new TCP or WS connection to server will spawn a new process, 
-  and pipe socket-out to std-in, and std-out to socket-in.
+Each new TCP or WS connection to server will spawn a new process, and pipe
+socket-out to std-in, and std-out to socket-in.
 
-HTTP requests without a session-id are redirected, so as to include
-  unique session-id. Each new session-id is tied to a newly spawned
-  process. Each HTTP request with a session-id is stripped of headers
-  and routed to its respective process std-in. HTTP response is generated
-  from process std-out.
-  HTTP requests adhere to the CDE (callback, data, end) protocol, i.e.:
-    JSONP requests are enabled by adding GET parameter callback or GET
-      parameter c
-    all input to server-side process is passed as GET parameter d, GET
-      parameter data, or in POST method body
-    adding GET parameter e or GET parameter end to an HTTP request
-      gracefully ends the current session
-    example of simple echo process interaction:
-      client GET request: http://localhost:8000/myapp?c=process&d=hello
-      server response body: http://localhost:8000/myapp:xxx?c=process&d=hello
-        (where xxx is the session id)
-      client GET request: http://localhost:8000/myapp:xxx?c=process&d=hello
-      server response body: "you said: hello"
-      client GET request: http://localhost:8000/myapp:xxx?e
-      server closes the running echo process and responds with status 204
+HTTP requests without a session-id are redirected, so as to include unique
+session-id. Each new session-id is tied to a newly spawned process. Each 
+HTTP request with a session-id is stripped of headers and routed to its
+respective process std-in. HTTP response is generated from process std-out.
+
+  HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
+
+	JSONP requests are enabled by adding GET parameter *callback* or GET
+	  parameter *c* 
+	all input to server-side process is passed as GET
+	  parameter *d*, GET parameter *data*, or in POST method body
+	adding GET parameter *e* or GET parameter *end* to an HTTP request
+	  gracefully ends the current session
+
+	example of simple HTTP echo process interaction:
+
+	  client GET request: http://localhost:8000/myapp?c=process&d=hello
+	  server response body: http://localhost:8000/myapp:xxx?c=process&d=hi
+		(where xxx is the session id)
+	  client GET request: http://localhost:8000/myapp:xxx?c=process&d=hi
+	  server response body: "you said: hello"
+	  client GET request: http://localhost:8000/myapp:xxx?e
+	  server closes the running echo process and responds with status 204
 
 
 Example:
-  servep --port 8000 --http "hi:echo hi" --ws "hi:echo hi" --tcp "8001:echo hi"
-  (will serve process "echo hi" at http://localhost:8000/hi, ws://localhost:8000/hi,
-   and on tcp port 8001)
+  servep -p 8000 --http "hi:echo hi" --ws "hi:echo hi" --tcp "8001:echo hi"
+  (will serve process "echo hi" at http://localhost:8000/hi, 
+	ws://localhost:8000/hi, and on tcp without any headers on port 8001)
+
 
 Log formatting adheres to the Extended Log File Format (ELF), version 1.1.
   ELF version 1.0 is specified here: https://www.w3.org/TR/WD-logfile.html
@@ -127,7 +139,7 @@ const WIN=process.env.comspec && process.env.comspec.search("cmd.exe")>-1;
 
 ////////////////////////////////////////
 // global vars
-var clArgs,httpServer,wsServer,spawnedProcesses=[];
+var clArgs,httpServer,wsServer,spawnedProcesses=[],tcpPort=AUTO_TCP_PORT;
 
 ////////////////////////////////////////
 // supporting functions
@@ -164,7 +176,6 @@ function makeLogFolder(task){
 }
 function openLog(taskprocess,startTime){
 	if(clArgs.log){
-		console.log(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.processID+'.txt');
 		taskprocess.log=fs.createWriteStream(path.join(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.processID+'.txt'));
 		taskprocess.log.write(`epochms	cs-body	sc-body\n`);
 	}
@@ -339,7 +350,6 @@ function httpHandler(req,res){
 	if(task){
 		res.setHeader('Content-Type','text/html');
 		var params=urlo.query,
-			data=params.data || params.d || '',
 			callback=params.callback || params.c;
 		if(!sessionID){										//check session-id, create new one if needed
 			while((sessionID=(new Date()).getTime()) in httpServer.sessions);
@@ -351,7 +361,7 @@ function httpHandler(req,res){
 			}
 			status(`http	${clArgs.port}	${req.url}	${req.connection.remoteAddress}	-`,res.statusCode);
 		}else{
-			var taskprocess;
+			var taskprocess,data;
 			if(httpServer.sessions[sessionID]===undefined){	//spawn, create new session
 				taskprocess=setupProcess(task,req.connection.remoteAddress);
 				httpServer.sessions[sessionID]=taskprocess;
@@ -385,16 +395,29 @@ function httpHandler(req,res){
 				});
 			}
 			else taskprocess=httpServer.sessions[sessionID];
+			//reset user session timeout
+			clearTimeout(taskprocess.exitTimeout);
+			//store current request data
 			taskprocess.callback=callback;
 			taskprocess.res=res;
-			taskprocess.stdin.write(data+'\r\n');			//client -> task
-			record2log(taskprocess.log,data);
-			//connection timeout to kill process (or end right now if "end" or "e" is one of the uri params)
-			clearTimeout(taskprocess.exitTimeout);
+			//process data from client
+			if(req.method==='POST'){
+				data='';
+				req.on('data',(d)=>{data+=d;});
+				req.on('end',()=>{
+					taskprocess.stdin.write(data+'\r\n');		//client -> task
+					record2log(taskprocess.log,data);
+				});
+			}else{
+				data=params.data || params.d || '';
+				taskprocess.stdin.write(data+'\r\n');			//client -> task
+				record2log(taskprocess.log,data);
+			}
+			//make sure to respond, even if taskprocess doesn't have anything to say
+			taskprocess.ending=setTimeout(()=>{taskprocess.res.end();if(taskprocess.closeWhenDone)taskprocess.close()},200);
+			//end session if "end" or "e" is one of the uri params, or set a timer to kill the session after HTTP_CONNECTION_TIMEOUT
 			if('e' in params || 'end' in params){
 				taskprocess.closeWhenDone=true;
-				if(taskprocess.ending)clearTimeout(taskprocess.ending);
-				taskprocess.ending=setTimeout(()=>{taskprocess.res.end()},20);
 			}else{
 				taskprocess.exitTimeout=setTimeout(taskprocess.close,HTTP_CONNECTION_TIMEOUT);
 			}
@@ -525,12 +548,14 @@ function main(){
 	}
 	if(clArgs.tcp.length){				//serve processes over tcp
 		expandFolders(clArgs.tcp);
+		if(tcpPort==clArgs.port)++tcpPort;
 		clArgs.tcp.forEach((s)=>{
 			let task=getTask(s,'tcp');
-			task.port=task.route;
-			var tcpServer=CreateTcpServer((socket)=>{onClientConnection(task,socket,'data','end')}).listen(parseInt(task.route));
+			task.port=parseInt(task.route) || tcpPort;
+			if(tcpPort==task.port)++tcpPort;
+			var tcpServer=CreateTcpServer((socket)=>{onClientConnection(task,socket,'data','end')}).listen(task.port);
 			tcpServer.on('error',(e)=>{usageAndExit(`ERROR: Could not start service for ${task.cmd} started on TCP port ${task.route}.\n - maybe port ${task.route} is in use or disallowed?`)});
-			status(`tcp	${task.route}	-	"${task.cmd}"	-	-`,0,'ready');
+			status(`tcp	${task.port}	-	"${task.cmd}"	-	-`,0,'ready');
 		});
 	}
 	print(`#Remark:  All services running.  Hit Ctrl+C to quit.`)
