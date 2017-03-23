@@ -9,8 +9,6 @@
 //
 //
 // TODO:
-//	before next commit:
-//		add into help/readme that tcp port does not need to be specified, and that whole folders can be
 //	allow changes in HTTP_CONNECTION_TIMEOUT, auto-tcp port range, and timeout for res.end via cli
 //	add ability to assign a prefix to all scripts in a folder (e.g. python tasks/stdio)
 //	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc) 
@@ -51,6 +49,7 @@ const USAGE=`Usage: servep [ServeFolder] [Options]
                             (this argument may be specified multiple times)
     -h, --http ExeFolder    serve processes in ExeFolder over http
     -h, --http "Name:Exe"   serve Exe over http, route by specified Name
+                            (this argument may be specified multiple times)
     -l, --log path          log all server-client interactions in separate
                               files in the specified path, under subfolder
                               PROTOCOL/ROUTE/, where PROTOCOL is http, ws, or
@@ -63,9 +62,9 @@ const HELP=`
     socket-out to std-in, and std-out to socket-in.
 
     HTTP requests without a session-id are redirected, so as to include unique
-    session-id. Each new session-id is tied to a newly spawned process. Each 
-    HTTP request with a session-id is stripped of headers and routed to its
-    respective process std-in. HTTP response is generated from process std-out.
+    session-id. Each new session-id is tied to a newly spawned process. Data in
+    each HTTP request with a session-id is routed to its respective process 
+    std-in, and the HTTP response is generated from that process' std-out.
 
       HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
 
@@ -144,7 +143,6 @@ var clArgs,httpServer,wsServer,spawnedProcesses=[],tcpPort=AUTO_TCP_PORT;
 ////////////////////////////////////////
 // supporting functions
 String.prototype.replaceAll=function(s1,s2){return this.replace(new RegExp(s1, 'g'), s2);}
-function datetime(){var a=moment().format('YYYY-MM-DD HH:mm:ss.SSSZ');return a.endsWith(':00')?a.substring(0,26):a;}
 function exeExists(exe){
 	var p;
 	if(WIN)p=childProcess.spawnSync(process.env.comspec,['/c'].concat(['where',exe]));
@@ -167,7 +165,7 @@ function tightJSON(s){
 // logging
 function print(s){console.log(s);}
 function status(taskinfo,status,comment,now){
-	print(`${(now||moment()).format('YYYY-MM-DD HH:mm:ss')}\t${taskinfo}\t${status||'-'}\t${comment || '-'}`);
+	print(`${(now||moment()).format('YYYY-MM-DD HH:mm:ss')}\t${taskinfo}\t${status||'-'}\t${comment||'-'}`);
 }
 function makeLogFolder(task){
 	mkdir(clArgs.log);

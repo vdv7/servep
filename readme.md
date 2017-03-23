@@ -4,9 +4,9 @@
     socket-out to std-in, and std-out to socket-in.
 
     HTTP requests without a session-id are redirected, so as to include unique
-    session-id. Each new session-id is tied to a newly spawned process. Each 
-    HTTP request with a session-id is stripped of headers and routed to its
-    respective process std-in. HTTP response is generated from process std-out.
+    session-id. Each new session-id is tied to a newly spawned process. Data in
+    each HTTP request with a session-id is routed to its respective process 
+    std-in, and the HTTP response is generated from that process' std-out.
 
       HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
 
