@@ -5,17 +5,17 @@
 
     HTTP requests without a session-id are redirected, so as to include unique
     session-id. Each new session-id is tied to a newly spawned process. Each 
-	HTTP request with a session-id is stripped of headers and routed to its
-	respective process std-in. HTTP response is generated from process std-out.
+    HTTP request with a session-id is stripped of headers and routed to its
+    respective process std-in. HTTP response is generated from process std-out.
 
       HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
 
-        JSONP requests are enabled by adding GET parameter *callback* or GET
-          parameter *c* 
-        all input to server-side process is passed as GET
-          parameter *d*, GET parameter *data*, or in POST method body
-        adding GET parameter *e* or GET parameter *end* to an HTTP request
-		  gracefully ends the current session
+        JSONP requests are enabled by adding GET parameter callback or GET
+          parameter c
+        all input to server-side process is passed in POST method body, or
+          as the value for GET parameter data or GET parameter d
+        adding GET parameter end or GET parameter e to an HTTP request
+          gracefully ends the current session
 
         example of simple echo process interaction:
 
