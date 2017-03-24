@@ -1,4 +1,5 @@
     This script serves stdio executables over TCP, HTTP, or WebSockets.
+    [Bug fixes and features requests: https://github.com/vdv7/servep/issues]
 
     Each new TCP or WS connection to server will spawn a new process, and pipe
     socket-out to std-in, and std-out to socket-in.
@@ -28,10 +29,15 @@
           server closes the running echo process and responds with status 204
 
 
-    Example:
+    Examples:
       servep -p 8000 --http "hi:echo hi" --ws "hi:echo hi" --tcp "8001:echo hi"
       (will serve process "echo hi" at http://localhost:8000/hi, 
         ws://localhost:8000/hi, and on tcp without any headers on port 8001)
+
+      servep -p 8000 --http samples/_http/ --py python3
+      (will serve all executables from samples/_http folder, as well as any
+        python3 scripts that have a .py extension. if samples/_http includes
+        helloecho.py, it will be served at http://localhost:8000/helloecho.py)
 
 
 

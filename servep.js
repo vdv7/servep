@@ -2,15 +2,15 @@
 
 ////////////////////////////////////
 // Process Server
-//	this script will serve a standard console process over a standard TCP socket or a websocket connection;
+//	this script will serve standard console processes over a standard TCP socket or a websocket connection;
 //	each new connection will spawn a new console process;
 //  each flushed string from a console process will be redirected to the corresponding client, and can be logged;
 //  best practice is to flush console process output after each newline
 //
 //
 // TODO:
+//	make _tcp folder and add capability to read/add it; or change _ws to _wstcp?
 //	allow changes in HTTP_CONNECTION_TIMEOUT, auto-tcp port range, and timeout for res.end via cli
-//	add ability to assign a prefix to all scripts in a folder (e.g. python tasks/stdio)
 //	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc) 
 //	copy help documentation into readme
 //	adapt to each process so as to get rid of http res.end timeout if that timeout isn't needed
@@ -29,94 +29,78 @@ const
 ////////////////////////////////////////
 // usage and help
 const DESCRIPTION="This script serves stdio executables over TCP, HTTP, or WebSockets.";
-const USAGE=`Usage: servep [ServeFolder] [Options]
+const USAGE=`Usage: servep [ServeFolder] [Options or Extensions]
 
   ServeFolder:              path to a folder optionally containing
                               - static files to serve over http (e.g. html)
-                              - ${HTTP_FOLDER}/ folder containing executables 
-                                to be served over http
-                              - ${WS_FOLDER}/ folder containing executables
-                                to be served over ws
+                              - ${HTTP_FOLDER}/ folder containing stdio scripts 
+                                and executables to be served over http
+                              - ${WS_FOLDER}/ folder containing stdio scripts
+                                and executables to be served over ws
   Options:
     --help                  more detailed help text
     -p, --port PORT         serve http/ws processes and static files on PORT;
                             if this argument is not specified, default is 80
     -t, --tcp ExeFolder     serve processes in ExeFolder over TCP
-    -t, --tcp "Port:Exe"    serve Exe over TCP, on a specified Port
+    -t, --tcp "[Port:]Exe"  serve Exe over TCP, on a specified Port
                             (this argument may be specified multiple times)
     -w, --ws ExeFolder      serve processes in ExeFolder over websockets
-    -w, --ws "Name:Exe"     serve Exe over websockets, route by specified Name
+    -w, --ws "[Name:]Exe"   serve Exe over websockets, route by specified Name
                             (this argument may be specified multiple times)
     -h, --http ExeFolder    serve processes in ExeFolder over http
-    -h, --http "Name:Exe"   serve Exe over http, route by specified Name
+    -h, --http "[Name:]Exe" serve Exe over http, route by specified Name
                             (this argument may be specified multiple times)
-    -l, --log path          log all server-client interactions in separate
+    -l, --logpath path      log all server-client interactions in separate
                               files in the specified path, under subfolder
                               PROTOCOL/ROUTE/, where PROTOCOL is http, ws, or
                               tcp, and ROUTE is the respective Port or Name
-  ExeFolder                 path to folder including executable processes
-  Exe                       path to executable process [and arguments], or
+  Extensions:               filename extension preceeded by "--" and followed
+                              by path to interpreter for that filetype, e.g.:
+                               --py python3 --js node
+  ExeFolder:                path to folder including stdio scripts/processes
+  Exe:                      path to stdio script/process [and arguments]
 `;
 const HELP=`
-    Each new TCP or WS connection to server will spawn a new process, and pipe
-    socket-out to std-in, and std-out to socket-in.
+[Bug fixes and features requests: https://github.com/vdv7/servep/issues]
 
-    HTTP requests without a session-id are redirected, so as to include unique
-    session-id. Each new session-id is tied to a newly spawned process. Data in
-    each HTTP request with a session-id is routed to its respective process 
-    std-in, and the HTTP response is generated from that process' std-out.
+Each new TCP or WS connection to server will spawn a new process, and pipe
+socket-out to std-in, and std-out to socket-in.
 
-      HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
+HTTP requests without a session-id are redirected, so as to include unique
+session-id. Each new session-id is tied to a newly spawned process. Data in
+each HTTP request with a session-id is routed to its respective process 
+std-in, and the HTTP response is generated from that process' std-out.
 
-        JSONP requests are enabled by adding GET parameter callback or GET
-          parameter c
-        all input to server-side process is passed in POST method body, or
-          as the value for GET parameter data or GET parameter d
-        adding GET parameter end or GET parameter e to an HTTP request
-          gracefully ends the current session
+  HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
 
-        example of simple echo process interaction:
+    JSONP requests are enabled by adding GET parameter callback or GET
+      parameter c
+    all input to server-side process is passed in POST method body, or
+      as the value for GET parameter data or GET parameter d
+    adding GET parameter end or GET parameter e to an HTTP request
+      gracefully ends the current session
 
-          client GET request: http://localhost:8000/myapp?c=process&d=hello
-          server response body: http://localhost:8000/myapp:xxx?c=process&d=hi
-            (where xxx is the session id)
-          client GET request: http://localhost:8000/myapp:xxx?c=process&d=hi
-          server response body: "you said: hello"
-          client GET request: http://localhost:8000/myapp:xxx?e
-          server closes the running echo process and responds with status 204
+    example of simple echo process interaction:
 
-
-    Example:
-      servep -p 8000 --http "hi:echo hi" --ws "hi:echo hi" --tcp "8001:echo hi"
-      (will serve process "echo hi" at http://localhost:8000/hi, 
-        ws://localhost:8000/hi, and on tcp without any headers on port 8001)
+      client GET request: http://localhost:8000/myapp?c=process&d=hello
+      server response body: http://localhost:8000/myapp:xxx?c=process&d=hi
+        (where xxx is the session id)
+      client GET request: http://localhost:8000/myapp:xxx?c=process&d=hi
+      server response body: "you said: hello"
+      client GET request: http://localhost:8000/myapp:xxx?e
+      server closes the running echo process and responds with status 204
 
 
-    Log formatting adheres to the Extended Log File Format (ELF), version 1.1.
-      ELF version 1.0 is specified here: https://www.w3.org/TR/WD-logfile.html
-      In addition to ELF 1.0 fields, 1.1 allows the following fields:
-        Field names that require no prefix:
-          epochs, epochms,        seconds and milliseconds since epoch
-        Field names that require sc-, cs-, s-, or c- prefix:
-          port,                   server port
-          protocol                connection protocol (e.g. http, https, ws)
-          raw, raw,               all data coming over the wire, including headers
-          head, head,             entire string of headers
-          body, body,             data coming over the wire, minus the headers
-        Fields date and time did not used to allow prefix, but now allow s- or c-:
-          s-date, s-time,         local date/time on server
-          c-date, c-time,         local date/time on client
-      In addition to ELF 1.0 time definition, 1.1 allows time-zone offset:
-        <time>=2<digit>":"2<digit>[":"2<digit>["."*<digit>]]["+"|"-"2<digit>[":"2<digit>]]');
-      In addition to ELF 1.0 value types, 1.1 allows *tight JSON strings.
-        *tight JSON: JSON without any optional whitespace
-      Example of ELF v1.1:
-        #Version: 1.1
-        #Date: 2017-03-17 13:20:58-04:00
-        #Fields: s-date s-time cs-protocol s-port uri sc-body
-        2017-03-17 13:21:05 http 80 / "<html><body>\nHello World!\n</body></html>"
-        2017-03-17 13:21:13 http 80 /somescript.py {"x":"Hello World!\nLook, double-quotes: \"","y":23,"z":true}
-        2017-03-17 13:21:15 http 80 /somescript.py {"x":"Goodbye World."}
+Examples:
+  servep -p 8000 --http "hi:echo hi" --ws "hi:echo hi" --tcp "8001:echo hi"
+  (will serve process "echo hi" at http://localhost:8000/hi, 
+    ws://localhost:8000/hi, and on tcp without any headers on port 8001)
+
+  servep -p 8000 --http samples/_http/ --py python3
+  (will serve all executables from samples/_http folder, as well as any
+    python3 scripts that have a .py extension. if samples/_http includes
+    helloecho.py, it will be served at http://localhost:8000/helloecho.py)
+
 `;
 
 
@@ -345,6 +329,11 @@ function httpHandler(req,res){
 	var urlo=url.parse(req.url,true),
 		[path,sessionID]=urlo.pathname.slice(1).split(':'),
 		task=httpServer.routing[path];
+	if(urlo.pathname.indexOf('..')>-1){ //no .. allowed in url for security
+		res.statusCode = 404;
+		res.end('Invalid URL: '+urlo.pathname);
+		return;
+	}
 	if(task){
 		res.setHeader('Content-Type','text/html');
 		var params=urlo.query,
@@ -422,6 +411,9 @@ function httpHandler(req,res){
 		}
 	}else if(clArgs.root){
 		staticHandler(req,res);
+	}else{
+	  res.statusCode = 404;
+	  res.end(`File ${urlo.pathname} not found.`);
 	}
 }
 
@@ -452,7 +444,7 @@ function usageAndExit(err){
 	process.exit();
 }
 function getTask(def,protocol){
-	var task={},i=def.indexOf(':');
+	var task={},i=def.indexOf(':'),exe;
 	if(i>=0){
 		task.route=def.slice(0,i);
 		task.cmd=def.slice(i+1);
@@ -461,8 +453,14 @@ function getTask(def,protocol){
 		task.cmd=def;
 	}
 	task.args=task.cmd.split(' ');
-	if(!exeExists(task.args[0]))
+	exe=clArgs[path.extname(task.args[0]).slice(1)];
+	if(exe){
+		task.args.unshift(exe);
+		task.cmd=exe+' '+task.cmd;
+	}
+	if(!fs.existsSync(task.args[0]) && !exeExists(task.args[0]))
 		usageAndExit(`ERROR: ${task.args[0]} is not a recognized command.`);
+	//TODO: if exists, but not executable, throw warning
 	task.protocol=protocol;
 	if(clArgs.log)makeLogFolder(task);
 	return task;
@@ -488,10 +486,10 @@ function main(){
 				t:'tcp',
 				h:'http',
 				p:'port',
-				l:'log'
+				l:'logpath'
 			},
 			default:{
-				ws:[],http:[],tcp:[],port:80
+				ws:[],http:[],tcp:[],extension:[],port:80
 			}
 		});
 	if(clArgs.help || clArgs.h===true)usageAndExit(DESCRIPTION+HELP);
@@ -501,8 +499,6 @@ function main(){
 	clArgs.root=clArgs._[0];
 	if(!clArgs.root && !clArgs.ws.length && !clArgs.tcp.length && !clArgs.http.length)usageAndExit(DESCRIPTION);
 	print('#Version: 1.1');
-	// print('#Remark: in addition to Extended Log File Format 1.0 fields, 1.1 allows the following fields: s-date,s-time,c-date,c-time,epochs,epochms,protocol,port');
-	// print('#Remark: in addition to Extended Log File Format 1.0 time definition, 1.1 allows time-zone offset specification: <time> = 2<digit> ":" 2<digit> [":" 2<digit> ["." *<digit>]] ["+"|"-" 2<digit> [":" 2<digit>]]');
 	print(`#Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}`);
 	print('#Fields: s-date s-time cs-protocol s-port cs-uri x-command c-ip x-processid s-status s-comment');
 	print('#Remark: Starting services...');
@@ -555,7 +551,8 @@ function main(){
 			tcpServer.on('error',(e)=>{usageAndExit(`ERROR: Could not start service for ${task.cmd} started on TCP port ${task.route}.\n - maybe port ${task.route} is in use or disallowed?`)});
 			status(`tcp	${task.port}	-	"${task.cmd}"	-	-`,0,'ready');
 		});
-	}
+	}else if(!clArgs.http.length && !clArgs.ws.length)
+		usageAndExit('No valid services were specified.');
 	print(`#Remark:  All services running.  Hit Ctrl+C to quit.`)
 }
 

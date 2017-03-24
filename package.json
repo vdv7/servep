@@ -1,7 +1,7 @@
 {
   "name": "servep",
-  "version": "1.0.5",
-  "description": "serve command-line processes as stateful http, jsonp, ws, and tcp",
+  "version": "1.0.7",
+  "description": "serve stdio scripts as stateful http, jsonp, ws, and tcp",
   "keywords": [
     "server",
     "stdio",
@@ -11,7 +11,8 @@
     "tcp",
     "netcat",
     "websocketd",
-    "cgi"
+    "cgi",
+	"jsonp"
   ],
   "bugs":{"url":"https://github.com/vdv7/servep/issues"},
   "license": "MIT",
@@ -20,9 +21,6 @@
   "repository" : {
     "type" : "git",
     "url" : "https://github.com/vdv7/servep.git"
-  },
-  "scripts": {
-    "test": "./servep.js ./samples/ -p 8000"
   },
   "bin": {
     "servep": "./servep.js"
