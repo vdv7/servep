@@ -11,11 +11,11 @@
 
       HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
 
-        JSONP requests are enabled by adding GET parameter callback or GET
-          parameter c
+        JSONP requests are enabled by adding GET parameter "callback" or GET
+          parameter "c"
         all input to server-side process is passed in POST method body, or
-          as the value for GET parameter data or GET parameter d
-        adding GET parameter end or GET parameter e to an HTTP request
+          as the value for GET parameter "data" or GET parameter "d"
+        adding GET parameter "end" or GET parameter "e" to an HTTP request
           gracefully ends the current session
 
         example of simple echo process interaction:

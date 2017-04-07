@@ -1,6 +1,6 @@
 {
   "name": "servep",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "serve stdio scripts as stateful http, jsonp, ws, and tcp",
   "keywords": [
     "server",

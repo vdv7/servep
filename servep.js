@@ -2,17 +2,13 @@
 
 ////////////////////////////////////
 // Process Server
-//	this script will serve standard console processes over a standard TCP socket or a websocket connection;
-//	each new connection will spawn a new console process;
-//  each flushed string from a console process will be redirected to the corresponding client, and can be logged;
-//  best practice is to flush console process output after each newline
+//	this script will serve standard console processes over a standard TCP socket, a websocket connection, or via a stateful http session
 //
 //
 // TODO:
 //	make _tcp folder and add capability to read/add it; or change _ws to _wstcp?
 //	allow changes in HTTP_CONNECTION_TIMEOUT, auto-tcp port range, and timeout for res.end via cli
-//	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc) 
-//	copy help documentation into readme
+//	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc)
 //	adapt to each process so as to get rid of http res.end timeout if that timeout isn't needed
 //	add security in http by recording/checking ip address (and maybe headers?) for each processID,
 //	add https/wss
@@ -73,11 +69,11 @@ std-in, and the HTTP response is generated from that process' std-out.
 
   HTTP requests adhere to the CDE (callback/data/end) protocol, i.e.:
 
-    JSONP requests are enabled by adding GET parameter callback or GET
-      parameter c
+    JSONP requests are enabled by adding GET parameter "callback" or GET
+      parameter "c"
     all input to server-side process is passed in POST method body, or
-      as the value for GET parameter data or GET parameter d
-    adding GET parameter end or GET parameter e to an HTTP request
+      as the value for GET parameter "data" or GET parameter "d"
+    adding GET parameter "end" or GET parameter "e" to an HTTP request
       gracefully ends the current session
 
     example of simple echo process interaction:
@@ -201,9 +197,11 @@ function cleanup(p,err){
 	}
 }
 function killSpawnedProcess(p,err){
-	cleanup(p,err);
-	if(WIN)childProcess.spawn("taskkill", ["/pid", p.pid, '/f', '/t']);
-	else p.kill();
+	if(p){
+		cleanup(p,err);
+		if(WIN)childProcess.spawn("taskkill", ["/pid", p.pid, '/f', '/t']);
+		else p.kill();
+	}
 }
 
 
@@ -357,7 +355,7 @@ function httpHandler(req,res){
 					delete httpServer.sessions[sessionID];
 				}
 				taskprocess.stderr.on("data",(e)=>{
-					taskprocess.ending=setTimeout(()=>{taskprocess.res.end();},20);
+					taskprocess.ending=setTimeout(()=>{taskprocess.res.statusCode=500;taskprocess.res.end();},20);
 					killSpawnedProcess(taskprocess,e);
 					delete httpServer.sessions[sessionID];
 				});
@@ -429,18 +427,15 @@ function exitHandler(options, err) {
     if(options.exit)process.exit();
 	else print('#End-Date: '+moment().format('YYYY-MM-DD HH:mm:ssZ'));
 }
-//starts handler on exit
-process.on('exit', exitHandler.bind(null));
-//catch ctrl+c event
-process.on('SIGINT', exitHandler.bind(null, {exit:true}));
 
 ////////////////////////////////////////
 // parse command-line arguments and launch services
-function usageAndExit(err){
+function usageAndExit(err,fullUsage){
 	console.log('\n==============================================================================');
 	console.log(err);
 	console.log('\n==============================================================================\n');
-	console.log(USAGE);
+	console.log(fullUsage?USAGE:`- run "servep" without command-line arguments to view usage\n- run "servep --help" to view more detailed documentation`);
+	console.log();
 	process.exit();
 }
 function getTask(def,protocol){
@@ -492,12 +487,12 @@ function main(){
 				ws:[],http:[],tcp:[],extension:[],port:80
 			}
 		});
-	if(clArgs.help || clArgs.h===true)usageAndExit(DESCRIPTION+HELP);
+	if(clArgs.help || clArgs.h===true)usageAndExit(DESCRIPTION+HELP,true);
 	if(!Array.isArray(clArgs.ws))clArgs.ws=[clArgs.ws];
 	if(!Array.isArray(clArgs.tcp))clArgs.tcp=[clArgs.tcp];
 	if(!Array.isArray(clArgs.http))clArgs.http=[clArgs.http];
 	clArgs.root=clArgs._[0];
-	if(!clArgs.root && !clArgs.ws.length && !clArgs.tcp.length && !clArgs.http.length)usageAndExit(DESCRIPTION);
+	if(!clArgs.root && !clArgs.ws.length && !clArgs.tcp.length && !clArgs.http.length)usageAndExit(DESCRIPTION,true);
 	print('#Version: 1.1');
 	print(`#Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}`);
 	print('#Fields: s-date s-time cs-protocol s-port cs-uri x-command c-ip x-processid s-status s-comment');
@@ -553,6 +548,10 @@ function main(){
 		});
 	}else if(!clArgs.http.length && !clArgs.ws.length)
 		usageAndExit('No valid services were specified.');
+	//starts handler on exit
+	process.on('exit', exitHandler.bind(null));
+	//catch ctrl+c event
+	process.on('SIGINT', exitHandler.bind(null, {exit:true}));
 	print(`#Remark:  All services running.  Hit Ctrl+C to quit.`)
 }
 
