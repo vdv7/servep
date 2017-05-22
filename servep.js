@@ -6,6 +6,18 @@
 //
 //
 // TODO:
+//	BUG!
+//		when spawning throws error (e.g. no such file):
+//		events.js:161
+		  // throw er; // Unhandled 'error' event
+		  // ^
+
+	// Error: spawn helloworld.js ENOENT
+		// at exports._errnoException (util.js:1028:11)
+		// at Process.ChildProcess._handle.onexit (internal/child_process.js:193:32)
+		// at onErrorNT (internal/child_process.js:359:16)
+		// at _combinedTickCallback (internal/process/next_tick.js:74:11)
+		// at process._tickCallback (internal/process/next_tick.js:98:9)
 //	make _tcp folder and add capability to read/add it; or change _ws to _wstcp?
 //	allow changes in HTTP_CONNECTION_TIMEOUT, auto-tcp port range, and timeout for res.end via cli
 //	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc)
@@ -153,7 +165,7 @@ function makeLogFolder(task){
 	mkdir(path.join(clArgs.log,task.protocol,task.route));
 }
 function openLog(taskprocess,startTime){
-	if(clArgs.log){
+	if(clArgs.log && (clArgs.nolog.indexOf(taskprocess.route)<0)){
 		taskprocess.log=fs.createWriteStream(path.join(clArgs.log,taskprocess.protocol,taskprocess.route,taskprocess.processID+'.txt'));
 		taskprocess.log.write(`epochms	cs-body	sc-body\n`);
 	}
@@ -481,7 +493,8 @@ function main(){
 				t:'tcp',
 				h:'http',
 				p:'port',
-				l:'logpath'
+				l:['logpath','log'],
+				n:'nolog'
 			},
 			default:{
 				ws:[],http:[],tcp:[],extension:[],port:80
@@ -491,6 +504,7 @@ function main(){
 	if(!Array.isArray(clArgs.ws))clArgs.ws=[clArgs.ws];
 	if(!Array.isArray(clArgs.tcp))clArgs.tcp=[clArgs.tcp];
 	if(!Array.isArray(clArgs.http))clArgs.http=[clArgs.http];
+	if(!Array.isArray(clArgs.nolog))clArgs.nolog=[clArgs.nolog];
 	clArgs.root=clArgs._[0];
 	if(!clArgs.root && !clArgs.ws.length && !clArgs.tcp.length && !clArgs.http.length)usageAndExit(DESCRIPTION,true);
 	print('#Version: 1.1');
@@ -540,7 +554,7 @@ function main(){
 		if(tcpPort==clArgs.port)++tcpPort;
 		clArgs.tcp.forEach((s)=>{
 			let task=getTask(s,'tcp');
-			task.port=parseInt(task.route) || tcpPort;
+			task.port=isNaN(task.route)?tcpPort:parseInt(task.route);
 			if(tcpPort==task.port)++tcpPort;
 			var tcpServer=CreateTcpServer((socket)=>{onClientConnection(task,socket,'data','end')}).listen(task.port);
 			tcpServer.on('error',(e)=>{usageAndExit(`ERROR: Could not start service for ${task.cmd} started on TCP port ${task.route}.\n - maybe port ${task.route} is in use or disallowed?`)});
