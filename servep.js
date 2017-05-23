@@ -46,30 +46,30 @@ const USAGE=`Usage: servep [ServeFolder] [Options or Extensions]
                               - ${WS_FOLDER}/ folder containing stdio scripts
                                 and executables to be served over ws
   Options:
-    --help                  more detailed help text
-    -p, --port PORT         serve http/ws processes and static files on PORT;
-                            if this argument is not specified, default is 80
-    -t, --tcp ExeFolder     serve processes in ExeFolder over TCP
-    -t, --tcp "[Port:]Exe"  serve Exe over TCP, on a specified Port
-                              (this argument may be specified multiple times)
-    -w, --ws ExeFolder      serve processes in ExeFolder over websockets
-    -w, --ws "[Name:]Exe"   serve Exe over websockets, route by specified Name
-                              (this argument may be specified multiple times)
-    -h, --http ExeFolder    serve processes in ExeFolder over http
-    -h, --http "[Name:]Exe" serve Exe over http, route by specified Name
-                              (this argument may be specified multiple times)
-    -l, --logpath path      log all server-client interactions in separate
-                              files in the specified path, under subfolder
-                              PROTOCOL/ROUTE/, where PROTOCOL is http, ws, or
-                              tcp, and ROUTE is the respective Port or Name
-    -n, --nolog ROUTE       do not log server-client interactions for ROUTE;
-                              ROUTE is Port or Name of one of the services
-                              (this argument may be specified multiple times)
-  Extensions:               filename extension preceeded by "--" and followed
-                              by path to interpreter for that filetype, e.g.:
-                               --py python3 --js node
-  ExeFolder:                path to folder including stdio scripts/processes
-  Exe:                      path to stdio script/process [and arguments]
+    --help                   more detailed help text
+    -p, --port PORT          serve http/ws processes and static files on PORT;
+                             if this argument is not specified, default is 80
+    -t, --tcp ExeFolder      serve processes in ExeFolder over TCP
+    -t, --tcp "[Port::]Exe"  serve Exe over TCP, on a specified Port
+                               (this argument may be specified multiple times)
+    -w, --ws ExeFolder       serve processes in ExeFolder over websockets
+    -w, --ws "[Name::]Exe"   serve Exe over websockets, route by specified Name
+                               (this argument may be specified multiple times)
+    -h, --http ExeFolder     serve processes in ExeFolder over http
+    -h, --http "[Name::]Exe" serve Exe over http, route by specified Name
+                               (this argument may be specified multiple times)
+    -l, --logpath path       log all server-client interactions in separate
+                               files in the specified path, under subfolder
+                               PROTOCOL/ROUTE/, where PROTOCOL is http, ws, or
+                               tcp, and ROUTE is the respective Port or Name
+    -n, --nolog ROUTE        do not log server-client interactions for ROUTE;
+                               ROUTE is Port or Name of one of the services
+                               (this argument may be specified multiple times)
+  Extensions:                filename extension preceeded by "--" and followed
+                               by path to interpreter for that filetype, e.g.:
+                                --py python3 --js node
+  ExeFolder:                 path to folder including stdio scripts/processes
+  Exe:                       path to stdio script/process [and arguments]
 `;
 const HELP=`
 [Bug fixes and features requests: https://github.com/vdv7/servep/issues]
@@ -454,10 +454,10 @@ function usageAndExit(err,fullUsage){
 	process.exit();
 }
 function getTask(def,protocol){
-	var task={},i=def.indexOf(':'),exe;
+	var task={},i=def.indexOf('::'),exe;
 	if(i>=0){
 		task.route=def.slice(0,i);
-		task.cmd=def.slice(i+1);
+		task.cmd=def.slice(i+2);
 	}else{
 		task.route=path.basename(def);
 		task.cmd=def;
