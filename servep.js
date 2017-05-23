@@ -51,17 +51,20 @@ const USAGE=`Usage: servep [ServeFolder] [Options or Extensions]
                             if this argument is not specified, default is 80
     -t, --tcp ExeFolder     serve processes in ExeFolder over TCP
     -t, --tcp "[Port:]Exe"  serve Exe over TCP, on a specified Port
-                            (this argument may be specified multiple times)
+                              (this argument may be specified multiple times)
     -w, --ws ExeFolder      serve processes in ExeFolder over websockets
     -w, --ws "[Name:]Exe"   serve Exe over websockets, route by specified Name
-                            (this argument may be specified multiple times)
+                              (this argument may be specified multiple times)
     -h, --http ExeFolder    serve processes in ExeFolder over http
     -h, --http "[Name:]Exe" serve Exe over http, route by specified Name
-                            (this argument may be specified multiple times)
+                              (this argument may be specified multiple times)
     -l, --logpath path      log all server-client interactions in separate
                               files in the specified path, under subfolder
                               PROTOCOL/ROUTE/, where PROTOCOL is http, ws, or
                               tcp, and ROUTE is the respective Port or Name
+    -n, --nolog ROUTE       do not log server-client interactions for ROUTE;
+                              ROUTE is Port or Name of one of the services
+                              (this argument may be specified multiple times)
   Extensions:               filename extension preceeded by "--" and followed
                               by path to interpreter for that filetype, e.g.:
                                --py python3 --js node
