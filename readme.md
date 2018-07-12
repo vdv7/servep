@@ -20,17 +20,20 @@
 
         example of simple echo process interaction:
 
-          client GET request: http://localhost:8000/myapp?c=process&d=hello
-          server response body: http://localhost:8000/myapp:xxx?c=process&d=hi
-            (where xxx is the session id)
-          client GET request: http://localhost:8000/myapp:xxx?c=process&d=hi
-          server response body: "you said: hello"
+          client GET request: http://localhost:8000/myapp?c=foo&d=hello
+          server responds with a status code of 302 and the following body:
+            http://localhost:8000/myapp:xxx?c=foo&d=hi
+              (where xxx is the session id)
+          client GET request:
+            http://localhost:8000/myapp:xxx?c=foo&d=hi
+          server response body:
+            foo("you said: hello")
           client GET request: http://localhost:8000/myapp:xxx?e
           server closes the running echo process and responds with status 204
 
 
     Examples:
-      servep -p 8000 --http "hi:echo hi" --ws "hi:echo hi" --tcp "8001:echo hi"
+      servep -p 8000 --http "hi::echo hi" --ws "hi::echo hi" --tcp "8001::echo hi"
       (will serve process "echo hi" at http://localhost:8000/hi, 
         ws://localhost:8000/hi, and on tcp without any headers on port 8001)
 
@@ -51,7 +54,7 @@
       (you may need to precede the previous line with "sudo" on linux)
 
     Run after npm installation:
-      servep [ServeFolder] [Options]
+      servep [Options]
 
     Get usage:
       servep

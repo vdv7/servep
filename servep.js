@@ -5,25 +5,6 @@
 //	this script will serve standard console processes over a standard TCP socket, a websocket connection, or via a stateful http session
 //
 //
-// TODO:
-//	BUG!
-//		when spawning throws error (e.g. no such file):
-//		events.js:161
-		  // throw er; // Unhandled 'error' event
-		  // ^
-
-	// Error: spawn helloworld.js ENOENT
-		// at exports._errnoException (util.js:1028:11)
-		// at Process.ChildProcess._handle.onexit (internal/child_process.js:193:32)
-		// at onErrorNT (internal/child_process.js:359:16)
-		// at _combinedTickCallback (internal/process/next_tick.js:74:11)
-		// at process._tickCallback (internal/process/next_tick.js:98:9)
-//	make _tcp folder and add capability to read/add it; or change _ws to _wstcp?
-//	allow changes in HTTP_CONNECTION_TIMEOUT, auto-tcp port range, and timeout for res.end via cli
-//	add help documentation (e.g. example interactions over netcat, curl, and wscat, requirement to flush, CDE protocol, session-id redirects, log format, only 3 http req's per processID, etc)
-//	adapt to each process so as to get rid of http res.end timeout if that timeout isn't needed
-//	add security in http by recording/checking ip address (and maybe headers?) for each processID,
-//	add https/wss
 
 
 const
@@ -37,39 +18,50 @@ const
 ////////////////////////////////////////
 // usage and help
 const DESCRIPTION="This script serves stdio executables over TCP, HTTP, or WebSockets.";
-const USAGE=`Usage: servep [ServeFolder] [Options or Extensions]
+const USAGE=`Usage: servep Options
 
-  ServeFolder:              path to a folder optionally containing
-                              - static files to serve over http (e.g. html)
-                              - ${HTTP_FOLDER}/ folder containing stdio scripts 
-                                and executables to be served over http
-                              - ${WS_FOLDER}/ folder containing stdio scripts
-                                and executables to be served over ws
   Options:
-    --help                   more detailed help text
+    --help                   help text with usage and description
+	-s, --static Folder      serve static files located in Folder
     -p, --port PORT          serve http/ws processes and static files on PORT;
                              if this argument is not specified, default is 80
-    -t, --tcp ExeFolder      serve processes in ExeFolder over TCP
-    -t, --tcp "[Port::]Exe"  serve Exe over TCP, on a specified Port
-                               (this argument may be specified multiple times)
-    -w, --ws ExeFolder       serve processes in ExeFolder over websockets
-    -w, --ws "[Name::]Exe"   serve Exe over websockets, route by specified Name
-                               (this argument may be specified multiple times)
-    -h, --http ExeFolder     serve processes in ExeFolder over http
-    -h, --http "[Name::]Exe" serve Exe over http, route by specified Name
-                               (this argument may be specified multiple times)
-    -l, --logpath path       log all server-client interactions in separate
+    -t, --tcp [TcpExe]+      serve TcpExe processes over TCP (no headers)
+    -w, --ws [WsExe]+        serve WsExe processes over websockets
+    -h, --http [HttpExe]+    serve HttpExe processes over http
+    -l, --log path           log all server-client interactions in separate
                                files in the specified path, under subfolder
                                PROTOCOL/ROUTE/, where PROTOCOL is http, ws, or
                                tcp, and ROUTE is the respective Port or Name
-    -n, --nolog ROUTE        do not log server-client interactions for ROUTE;
+    -n, --nolog [ROUTE]+     do not log server-client interactions for ROUTE;
                                ROUTE is Port or Name of one of the services
+    -e, --extexe EXT EXE     indicates that paths with extension EXT are
+                               scripts that require specific EXE to run
                                (this argument may be specified multiple times)
-  Extensions:                filename extension preceeded by "--" and followed
-                               by path to interpreter for that filetype, e.g.:
-                                --py python3 --js node
-  ExeFolder:                 path to folder including stdio scripts/processes
-  Exe:                       path to stdio script/process [and arguments]
+                               Ex: servep -h myFolder -e py python3 -e js node
+  TcpExe:
+    Folder                   serve all executables in Folder over TCP
+                               (auto-generated ports)
+    Path                     serve executable at Path over TCP
+                               (auto-generated port)
+    "Port::Path"             serve executable at Path on specified TCP Port
+  WsExe:
+    Folder                   serve all executables in Folder via WebSockets
+                               (auto-generated URL)
+    Path                     serve executable at Path via WebSockets
+                               (auto-generated URL)
+    "Name::Path"             serve executable at Path via Websockets,
+                               Name specifies the URL path
+                               Ex: servep -w "hello::helloworld.py" will
+                                serve helloworld.py at ws://server:port/hello
+  HttpExe:
+    Folder                   serve all executables in Folder via stateful HTTP
+                               (auto-generated URL)
+    Path                     serve executable at Path via stateful HTTP
+                               (auto-generated URL)
+    "Name::Path"             serve executable at Path via stateful HTTP,
+                               Name specifies the URL path
+                               Ex: servep -h "yo::helloworld.py" will
+                                serve helloworld.py at http://server:port/yo
 `;
 const HELP=`
 [Bug fixes and features requests: https://github.com/vdv7/servep/issues]
@@ -93,19 +85,22 @@ std-in, and the HTTP response is generated from that process' std-out.
 
     example of simple echo process interaction:
 
-      client GET request: http://localhost:8000/myapp?c=process&d=hello
-      server response body: http://localhost:8000/myapp:xxx?c=process&d=hi
-        (where xxx is the session id)
-      client GET request: http://localhost:8000/myapp:xxx?c=process&d=hi
-      server response body: "you said: hello"
-      client GET request: http://localhost:8000/myapp:xxx?e
-      server closes the running echo process and responds with status 204
+          client GET request: http://localhost:8000/myapp?c=foo&d=hello
+          server responds with a status code of 302 and the following body:
+            http://localhost:8000/myapp:xxx?c=foo&d=hi
+              (where xxx is the session id)
+          client GET request:
+            http://localhost:8000/myapp:xxx?c=foo&d=hi
+          server response body:
+            foo("you said: hello")
+          client GET request: http://localhost:8000/myapp:xxx?e
+          server closes the running echo process and responds with status 204
 
 
 Examples:
-  servep -p 8000 --http "hi:echo hi" --ws "hi:echo hi" --tcp "8001:echo hi"
+  servep -p 8000 --http "hi::echo hi" --ws "hi::echo hi" --tcp "9001::echo hi"
   (will serve process "echo hi" at http://localhost:8000/hi, 
-    ws://localhost:8000/hi, and on tcp without any headers on port 8001)
+    ws://localhost:8000/hi, and over tcp without any headers on port 9001)
 
   servep -p 8000 --http samples/_http/ --py python3
   (will serve all executables from samples/_http folder, as well as any
@@ -121,10 +116,10 @@ const childProcess = require('child_process'),
 	CreateTcpServer=require('net').createServer,
 	Http = require('http'),
 	WebSocket = require('ws'),
+	ArgumentParser = require('argparse').ArgumentParser,
 	fs=require('fs'),
 	path=require('path'),
 	url = require('url'),
-	argParser=require('minimist'),
 	moment=require('moment');
 
 const WIN=process.env.comspec && process.env.comspec.search("cmd.exe")>-1;
@@ -142,7 +137,7 @@ function exeExists(exe){
 	var p;
 	if(WIN)p=childProcess.spawnSync(process.env.comspec,['/c'].concat(['where',exe]));
 	else p=childProcess.spawnSync('which',[exe]);
-	return p.status===0;
+	return p.status===0?p.stdout.toString().trim():false;
 }
 function mkdir(pathname) {
 	try {fs.mkdirSync(pathname);}
@@ -297,7 +292,7 @@ function staticHandler(req,res){
   // parse URL
   const parsedUrl = url.parse(req.url);
   // extract URL path
-  let pathname = path.join(clArgs.root,parsedUrl.pathname);
+  let pathname = path.join(clArgs.static,parsedUrl.pathname);
   function statusline(){
 	status(`http	${clArgs.port}	${req.url}	-	${req.connection.remoteAddress}	-`,res.statusCode);
   }
@@ -422,7 +417,7 @@ function httpHandler(req,res){
 				taskprocess.exitTimeout=setTimeout(taskprocess.close,HTTP_CONNECTION_TIMEOUT);
 			}
 		}
-	}else if(clArgs.root){
+	}else if(clArgs.static){
 		staticHandler(req,res);
 	}else{
 	  res.statusCode = 404;
@@ -463,13 +458,20 @@ function getTask(def,protocol){
 		task.cmd=def;
 	}
 	task.args=task.cmd.split(' ');
-	exe=clArgs[path.extname(task.args[0]).slice(1)];
+	exe=clArgs.extexe[path.extname(task.args[0]).slice(1)];
 	if(exe){
 		task.args.unshift(exe);
 		task.cmd=exe+' '+task.cmd;
 	}
-	if(!fs.existsSync(task.args[0]) && !exeExists(task.args[0]))
+	var existsLocal=fs.existsSync(task.args[0]);
+	var existsPath=exeExists(task.args[0]);
+	if(!existsLocal && !existsPath)
 		usageAndExit(`ERROR: ${task.args[0]} is not a recognized command.`);
+	try{
+		fs.accessSync(existsLocal?task.args[0]:existsPath, fs.constants.X_OK);
+	}catch(e){
+		usageAndExit(`ERROR: ${task.args[0]} is not executable.`);
+	}
 	//TODO: if exists, but not executable, throw warning
 	task.protocol=protocol;
 	if(clArgs.log)makeLogFolder(task);
@@ -490,42 +492,33 @@ function expandFolders(taskLst){
 	});
 }
 function main(){
-	clArgs=argParser(process.argv.slice(2),{	//parse arguments
-			alias:{
-				w:'ws',
-				t:'tcp',
-				h:'http',
-				p:'port',
-				l:['logpath','log'],
-				n:'nolog'
-			},
-			default:{
-				ws:[],http:[],tcp:[],extension:[],port:80
-			}
-		});
-	if(clArgs.help || clArgs.h===true)usageAndExit(DESCRIPTION+HELP,true);
-	if(!Array.isArray(clArgs.ws))clArgs.ws=[clArgs.ws];
-	if(!Array.isArray(clArgs.tcp))clArgs.tcp=[clArgs.tcp];
-	if(!Array.isArray(clArgs.http))clArgs.http=[clArgs.http];
-	if(!Array.isArray(clArgs.nolog))clArgs.nolog=[clArgs.nolog];
-	clArgs.root=clArgs._[0];
-	if(!clArgs.root && !clArgs.ws.length && !clArgs.tcp.length && !clArgs.http.length)usageAndExit(DESCRIPTION,true);
+	//parse arguments
+	argParser=new ArgumentParser({
+		addHelp:false,
+		argumentDefault:[]
+	});
+	argParser.addArgument(['-w','--ws'],{nargs:'*'});
+	argParser.addArgument(['-t','--tcp'],{nargs:'*'});
+	argParser.addArgument(['-h','--http'],{nargs:'*'});
+	argParser.addArgument(['-s','--static'],{defaultValue:null});
+	argParser.addArgument(['-l','--log','--logpath'],{defaultValue:null});
+	argParser.addArgument(['-n','--nolog'],{nargs:'*'});
+	argParser.addArgument(['-p','--port'],{defaultValue:8000});
+	argParser.addArgument(['-e','--extexe'],{nargs:2,action:'append'});
+	argParser.addArgument(['--help'],{nargs:0,defaultValue:null});
+	clArgs=argParser.parseArgs(process.argv.slice(2));
+	//display help
+	if(clArgs.help)usageAndExit(DESCRIPTION+HELP,true);
+	//turn extexe argument into Object
+	clArgs.extexe=clArgs.extexe.reduce((p,c)=>{p[c[0]]=c[1];return p;},{});
+	if(!clArgs.static && !clArgs.ws.length && !clArgs.tcp.length && !clArgs.http.length)usageAndExit(DESCRIPTION,true);
 	print('#Version: 1.1');
 	print(`#Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}`);
 	print('#Fields: s-date s-time cs-protocol s-port cs-uri x-command c-ip x-processid s-status s-comment');
 	print('#Remark: Starting services...');
-	if(clArgs.root){						//serve entire folder (everything not in WS_FOLDER or HTTP_FOLDER is served as static files)
-		if(!fs.existsSync(clArgs.root) || !fs.statSync(clArgs.root).isDirectory())
-			usageAndExit(`ERROR: ${clArgs.root} is not a valid path.`);
-		let subfolder=path.join(clArgs.root,WS_FOLDER);
-		if(fs.existsSync(subfolder) && fs.statSync(subfolder).isDirectory())
-			clArgs.ws.push(subfolder);
-		subfolder=path.join(clArgs.root,HTTP_FOLDER);
-		if(fs.existsSync(subfolder) && fs.statSync(subfolder).isDirectory())
-			clArgs.http.push(subfolder);
-		status(`http ${clArgs.port}	/	-	-	-`,0,'ready');
-	}
-	if(clArgs.root || clArgs.http.length){	//serve processes over http
+	if(!fs.existsSync(clArgs.static) || !fs.statSync(clArgs.static).isDirectory())
+		usageAndExit(`ERROR: ${clArgs.root} is not a valid path.`);
+	if(clArgs.static || clArgs.http.length){	//serve processes over http
 		httpServer=Http.createServer(httpHandler);
 		httpServer.listen(clArgs.port);
 		httpServer.on('error',(e)=>{usageAndExit(`ERROR: Could not start server on port ${clArgs.port}.\n - maybe port ${clArgs.port} is in use or disallowed?`)});
