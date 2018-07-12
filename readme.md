@@ -20,12 +20,13 @@
 
         example of simple echo process interaction:
 
-          client GET request: http://localhost:8000/myapp?c=foo&d=hello
+          client GET request:
+            http://localhost:8000/myapp
           server responds with a status code of 302 and the following body:
-            http://localhost:8000/myapp:xxx?c=foo&d=hi
+            http://localhost:8000/myapp:xxx
               (where xxx is the session id)
           client GET request:
-            http://localhost:8000/myapp:xxx?c=foo&d=hi
+            http://localhost:8000/myapp:xxx?d=hello
           server response body:
             foo("you said: hello")
           client GET request: http://localhost:8000/myapp:xxx?e
