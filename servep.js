@@ -345,15 +345,16 @@ function httpHandler(req,res){
 	}
 	if(task){
 		res.setHeader('Content-Type','text/html');
+		res.setHeader('Access-Control-Allow-Origin','*');
 		var params=urlo.query,
 			callback=params.callback || params.c;
 		if(!sessionID){										//check session-id, create new one if needed
 			while((sessionID=(new Date()).getTime()) in httpServer.sessions);
-			res.statusCode=302;
+			res.statusCode=201;
 			if(callback){
-				res.end(jsonp(callback,`http://${req.headers.host}/${path}:${sessionID}${urlo.search}`));
+				res.end(jsonp(callback,`http://${req.headers.host}/${path}:${sessionID}${urlo.search||''}`));
 			}else{
-				res.end(`<meta http-equiv="refresh" content="0;URL='http://${req.headers.host}/${path}:${sessionID}${urlo.search}'" />`);
+				res.end(`http://${req.headers.host}/${path}:${sessionID}${urlo.search||''}`);
 			}
 			status(`http	${clArgs.port}	${req.url}	${req.connection.remoteAddress}	-`,res.statusCode);
 		}else{
@@ -382,8 +383,11 @@ function httpHandler(req,res){
 							taskprocess.ending=undefined;
 						}
 						for(var i=0;i<arrayOfLines.length;i++){
-							if(taskprocess.callback)taskprocess.res.write(jsonp(taskprocess.callback,arrayOfLines[i]));
-							else taskprocess.res.write(arrayOfLines[i]+'\n');
+							if(taskprocess.callback){
+								taskprocess.res.write(jsonp(taskprocess.callback,arrayOfLines[i]));
+							}else{
+								taskprocess.res.write(arrayOfLines[i]+'\n');
+							}
 							record2log(taskprocess.log,null,arrayOfLines[i]);
 						}
 						taskprocess.ending=setTimeout(()=>{taskprocess.res.end();if(taskprocess.closeWhenDone)taskprocess.close()},20);
