@@ -521,8 +521,8 @@ function main(){
 	print(`#Date: ${moment().format('YYYY-MM-DD HH:mm:ssZ')}`);
 	print('#Fields: s-date s-time cs-protocol s-port cs-uri x-command c-ip x-processid s-status s-comment');
 	print('#Remark: Starting services...');
-	if(!fs.existsSync(clArgs.static) || !fs.statSync(clArgs.static).isDirectory())
-		usageAndExit(`ERROR: ${clArgs.root} is not a valid path.`);
+	if(clArgs.static && (!fs.existsSync(clArgs.static) || !fs.statSync(clArgs.static).isDirectory()))
+		usageAndExit(`ERROR: ${clArgs.static} is not a valid folder path.`);
 	if(clArgs.static || clArgs.http.length){	//serve processes over http
 		httpServer=Http.createServer(httpHandler);
 		httpServer.listen(clArgs.port);
